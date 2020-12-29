@@ -86,7 +86,7 @@ func TestRequest(t *testing.T) {
 
 func TestUploadBadMd5(t *testing.T) {
 	client := NewClientFromEnv(t)
-	_, err := client.Upload("any", bytes.NewReader([]byte{0}), []byte{0}, "")
+	_, err := client.Upload("any", bytes.NewReader([]byte{0}), md5sum([]byte{1}), "")
 	if err == nil || err.Error() != "The Content-MD5 you specified was invalid." {
 		t.Fatal("server didn't respond correct error")
 	} else {
