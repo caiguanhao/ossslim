@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestRequest(t *testing.T) {
+func NewClientFromEnv(t *testing.T) *Client {
 	accessKeyId := os.Getenv("OSS_ACCESS_KEY_ID")
 	accessKeySecret := os.Getenv("OSS_ACCESS_KEY_SECRET")
 	prefix := os.Getenv("OSS_PREFIX")
@@ -28,12 +28,16 @@ func TestRequest(t *testing.T) {
 		t.Fatal("please provide env: OSS_BUCKET")
 	}
 
-	client := Client{
+	return &Client{
 		AccessKeyId:     accessKeyId,
 		AccessKeySecret: accessKeySecret,
 		Prefix:          prefix,
 		Bucket:          bucket,
 	}
+}
+
+func TestRequest(t *testing.T) {
+	client := NewClientFromEnv(t)
 
 	dir := time.Now().UTC().Format("tmp20060102150405/")
 	files := []string{"request.go", "request_test.go"}
@@ -78,6 +82,16 @@ func TestRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log("removed", keys)
+}
+
+func TestUploadBadMd5(t *testing.T) {
+	client := NewClientFromEnv(t)
+	_, err := client.Upload("any", bytes.NewReader([]byte{0}), []byte{0}, "")
+	if err == nil || err.Error() != "The Content-MD5 you specified was invalid." {
+		t.Fatal("server didn't respond correct error")
+	} else {
+		t.Log("server responded correct error")
+	}
 }
 
 func md5sum(content []byte) []byte {
