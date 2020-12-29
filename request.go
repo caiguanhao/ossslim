@@ -18,6 +18,9 @@ import (
 )
 
 type (
+	// Example:
+	// prefix: https://your-bucket.oss-cn-hongkong.aliyuncs.com
+	// bucket: your-bucket
 	Client struct {
 		AccessKeyId     string
 		AccessKeySecret string
@@ -90,6 +93,9 @@ type (
 	}
 )
 
+// Upload uploads reqBody to remote, returns request and error.
+// reqBodyMd5 can be nil, if it is provided, OSS will run MD5 check.
+// If contentType is empty, "application/octet-stream" will be used.
 func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, contentType string) (*Request, error) {
 	req := &Request{
 		client:      c,
@@ -103,14 +109,17 @@ func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, con
 	return req, err
 }
 
+// Download downloads remote to respBody, returns request and error.
 func (c *Client) Download(remote string, respBody io.Writer) (*Request, error) {
 	return c.download(remote, respBody, false)
 }
 
+// DownloadAsync downloads remote to respBody, returns request and error, without waiting till download is complete.
 func (c *Client) DownloadAsync(remote string, respBody io.Writer) (*Request, error) {
 	return c.download(remote, respBody, true)
 }
 
+// Delete deletes multiple keys at the same time.
 func (c *Client) Delete(remotes ...string) error {
 	var reqBody bytes.Buffer
 	reqBody.WriteString(xml.Header)
@@ -139,6 +148,7 @@ func (c *Client) Delete(remotes ...string) error {
 	return err
 }
 
+// List lists files and directories under prefix, recursively if recursive is set to true.
 func (c *Client) List(prefix string, recursive bool) (result ListResult, err error) {
 	req := &Request{client: c}
 	err = req.list(prefix, "", &result, recursive)
