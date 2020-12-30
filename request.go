@@ -155,6 +155,14 @@ func (c *Client) List(prefix string, recursive bool) (result ListResult, err err
 	return
 }
 
+// URL generates URL for remote file
+func (c *Client) URL(remote string) string {
+	if !strings.HasPrefix(remote, "/") {
+		remote = "/" + remote
+	}
+	return strings.TrimSuffix(c.Prefix, "/") + remote
+}
+
 func (c *Client) download(remote string, respBody io.Writer, async bool) (*Request, error) {
 	req := &Request{
 		client:   c,
