@@ -216,7 +216,7 @@ func (req *Request) do() (err error) {
 	if err != nil {
 		return
 	}
-	if req.contentType != "" {
+	if req.contentType == "" {
 		req.contentType = "application/octet-stream"
 	}
 	httpReq.Header.Set("Content-Type", req.contentType)
