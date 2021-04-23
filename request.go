@@ -18,9 +18,8 @@ import (
 )
 
 type (
-	// Example:
-	// prefix: https://your-bucket.oss-cn-hongkong.aliyuncs.com
-	// bucket: your-bucket
+	// An OSS client must have prefix, bucket, access key ID and access key secret.
+	// Prefix should be a string like this: https://<your-bucket>.<region>.aliyuncs.com.
 	Client struct {
 		AccessKeyId     string
 		AccessKeySecret string
@@ -93,9 +92,11 @@ type (
 	}
 )
 
-// Upload uploads reqBody to remote, returns request and error.
-// reqBodyMd5 can be nil, if it is provided, OSS will run MD5 check.
-// If contentType is empty, "application/octet-stream" will be used.
+// Upload creates and executes a upload request for reqBody (io.Reader) to
+// remote path, returns the request and error. reqBodyMd5 can be nil, OSS will
+// run MD5 check if it is provided.  If contentType is empty,
+// "application/octet-stream" will be used. If the body is bytes, use
+// bytes.NewReader. If it is a string, use strings.NewReader.
 func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, contentType string) (*Request, error) {
 	req := &Request{
 		client:      c,
@@ -109,17 +110,21 @@ func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, con
 	return req, err
 }
 
-// Download downloads remote to respBody, returns request and error.
+// Download creates and executes a download request from remote path to
+// respBody (io.Writer), returns the request and error. You can use
+// bytes.Buffer to download the file to memory. If you want to have more than
+// one destination, use io.MultiWriter.
 func (c *Client) Download(remote string, respBody io.Writer) (*Request, error) {
 	return c.download(remote, respBody, false)
 }
 
-// DownloadAsync downloads remote to respBody, returns request and error, without waiting till download is complete.
+// DownloadAsync is like Download but won't wait till download is complete.
 func (c *Client) DownloadAsync(remote string, respBody io.Writer) (*Request, error) {
 	return c.download(remote, respBody, true)
 }
 
-// Delete deletes multiple keys at the same time.
+// Delete creates and executes a delete request for multiple remote keys
+// (paths) at the same time.
 func (c *Client) Delete(remotes ...string) error {
 	var reqBody bytes.Buffer
 	reqBody.WriteString(xml.Header)
@@ -148,14 +153,15 @@ func (c *Client) Delete(remotes ...string) error {
 	return err
 }
 
-// List lists files and directories under prefix, recursively if recursive is set to true.
+// List creates and executes a list request for remote files and directories
+// under prefix, recursively if recursive is set to true.
 func (c *Client) List(prefix string, recursive bool) (result ListResult, err error) {
 	req := &Request{client: c}
 	err = req.list(prefix, "", &result, recursive)
 	return
 }
 
-// URL generates URL for remote file
+// URL generates URL without query string for remote file.
 func (c *Client) URL(remote string) string {
 	if !strings.HasPrefix(remote, "/") {
 		remote = "/" + remote
