@@ -28,6 +28,8 @@ type (
 	}
 
 	Request struct {
+		ResponseContentLength *int64
+
 		client *Client
 
 		remote      string
@@ -238,6 +240,8 @@ func (req *Request) do() (err error) {
 	if err != nil {
 		return
 	}
+	cl := resp.ContentLength
+	req.ResponseContentLength = &cl
 	if resp.StatusCode == 200 {
 		if req.respBody == nil {
 			resp.Body.Close()
