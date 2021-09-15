@@ -29,6 +29,7 @@ type (
 	}
 
 	Request struct {
+		Response              *http.Response
 		ResponseContentLength *int64
 
 		client *Client
@@ -95,6 +96,24 @@ type (
 		Files   []keyOnly `xml:"Object"`
 	}
 )
+
+func (c *Client) Exists(remote string) (bool, *Request, error) {
+	return c.ExistsWithContext(context.Background(), remote)
+}
+
+func (c *Client) ExistsWithContext(ctx context.Context, remote string) (exists bool, req *Request, err error) {
+	req = &Request{
+		client: c,
+		ctx:    ctx,
+		remote: remote,
+		method: "HEAD",
+	}
+	err = req.do()
+	if req.Response != nil {
+		exists = req.Response.StatusCode == 200
+	}
+	return
+}
 
 // Upload wraps UploadWithContext using context.Background.
 func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, contentType string) (*Request, error) {
@@ -273,6 +292,7 @@ func (req *Request) do() (err error) {
 	if err != nil {
 		return
 	}
+	req.Response = resp
 	cl := resp.ContentLength
 	req.ResponseContentLength = &cl
 	if resp.StatusCode == 200 {
@@ -292,6 +312,9 @@ func (req *Request) do() (err error) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 404 && req.method == "HEAD" {
+		return
+	}
 	var body []byte
 	body, err = ioutil.ReadAll(resp.Body)
 	if err == nil {

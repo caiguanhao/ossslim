@@ -39,6 +39,16 @@ func newClientFromEnv(t *testing.T) *Client {
 func TestRequest(t *testing.T) {
 	client := newClientFromEnv(t)
 
+	exists, _, err := client.Exists("not-exists")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("exists == true")
+	} else {
+		t.Log("exists != true passed")
+	}
+
 	dir := time.Now().UTC().Format("tmp20060102150405/")
 	files := []string{"request.go", "request_test.go"}
 	sums := map[string][]byte{}
@@ -54,6 +64,15 @@ func TestRequest(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Log("uploaded to", req.URL())
+		exists, _, err := client.Exists(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists {
+			t.Log("exists == true passed")
+		} else {
+			t.Fatal("exists != true")
+		}
 	}
 	result, err := client.List(dir, false)
 	if err != nil {
