@@ -2,6 +2,7 @@ package ossslim
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
@@ -31,6 +32,7 @@ type (
 		ResponseContentLength *int64
 
 		client *Client
+		ctx    context.Context
 
 		remote      string
 		queryString string
@@ -94,14 +96,20 @@ type (
 	}
 )
 
+// Upload wraps UploadWithContext using context.Background.
+func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, contentType string) (*Request, error) {
+	return c.UploadWithContext(context.Background(), remote, reqBody, reqBodyMd5, contentType)
+}
+
 // Upload creates and executes a upload request for reqBody (io.Reader) to
 // remote path, returns the request and error. reqBodyMd5 can be nil, OSS will
 // run MD5 check if it is provided.  If contentType is empty,
 // "application/octet-stream" will be used. If the body is bytes, use
 // bytes.NewReader. If it is a string, use strings.NewReader.
-func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, contentType string) (*Request, error) {
+func (c *Client) UploadWithContext(ctx context.Context, remote string, reqBody io.Reader, reqBodyMd5 []byte, contentType string) (*Request, error) {
 	req := &Request{
 		client:      c,
+		ctx:         ctx,
 		remote:      remote,
 		reqBody:     reqBody,
 		contentType: contentType,
@@ -112,22 +120,37 @@ func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, con
 	return req, err
 }
 
+// Download wraps DownloadWithContext using context.Background.
+func (c *Client) Download(remote string, respBody io.Writer) (*Request, error) {
+	return c.download(context.Background(), remote, respBody, false)
+}
+
 // Download creates and executes a download request from remote path to
 // respBody (io.Writer), returns the request and error. You can use
 // bytes.Buffer to download the file to memory. If you want to have more than
 // one destination, use io.MultiWriter.
-func (c *Client) Download(remote string, respBody io.Writer) (*Request, error) {
-	return c.download(remote, respBody, false)
+func (c *Client) DownloadWithContext(ctx context.Context, remote string, respBody io.Writer) (*Request, error) {
+	return c.download(ctx, remote, respBody, false)
+}
+
+// DownloadAsync wraps DownloadAsyncWithContext using context.Background.
+func (c *Client) DownloadAsync(remote string, respBody io.Writer) (*Request, error) {
+	return c.download(context.Background(), remote, respBody, true)
 }
 
 // DownloadAsync is like Download but won't wait till download is complete.
-func (c *Client) DownloadAsync(remote string, respBody io.Writer) (*Request, error) {
-	return c.download(remote, respBody, true)
+func (c *Client) DownloadAsyncWithContext(ctx context.Context, remote string, respBody io.Writer) (*Request, error) {
+	return c.download(ctx, remote, respBody, true)
+}
+
+// Delete wraps DeleteWithContext using context.Background.
+func (c *Client) Delete(remotes ...string) error {
+	return c.DeleteWithContext(context.Background(), remotes...)
 }
 
 // Delete creates and executes a delete request for multiple remote keys
 // (paths) at the same time.
-func (c *Client) Delete(remotes ...string) error {
+func (c *Client) DeleteWithContext(ctx context.Context, remotes ...string) error {
 	var reqBody bytes.Buffer
 	reqBody.WriteString(xml.Header)
 	files := []keyOnly{}
@@ -146,6 +169,7 @@ func (c *Client) Delete(remotes ...string) error {
 	md5sum.Write(reqBody.Bytes())
 	req := &Request{
 		client:     c,
+		ctx:        ctx,
 		remote:     "/?delete",
 		reqBody:    &reqBody,
 		contentMd5: base64.StdEncoding.EncodeToString(md5sum.Sum(nil)),
@@ -155,10 +179,18 @@ func (c *Client) Delete(remotes ...string) error {
 	return err
 }
 
+// List wraps ListWithContext using context.Background.
+func (c *Client) List(prefix string, recursive bool) (ListResult, error) {
+	return c.ListWithContext(context.Background(), prefix, recursive)
+}
+
 // List creates and executes a list request for remote files and directories
 // under prefix, recursively if recursive is set to true.
-func (c *Client) List(prefix string, recursive bool) (result ListResult, err error) {
-	req := &Request{client: c}
+func (c *Client) ListWithContext(ctx context.Context, prefix string, recursive bool) (result ListResult, err error) {
+	req := &Request{
+		client: c,
+		ctx:    ctx,
+	}
 	err = req.list(prefix, "", &result, recursive)
 	return
 }
@@ -171,9 +203,10 @@ func (c *Client) URL(remote string) string {
 	return strings.TrimSuffix(c.Prefix, "/") + remote
 }
 
-func (c *Client) download(remote string, respBody io.Writer, async bool) (*Request, error) {
+func (c *Client) download(ctx context.Context, remote string, respBody io.Writer, async bool) (*Request, error) {
 	req := &Request{
 		client:   c,
+		ctx:      ctx,
 		remote:   remote,
 		method:   "GET",
 		respBody: respBody,
@@ -220,7 +253,7 @@ func (req *Request) list(prefix string, marker string, result *ListResult, recur
 
 func (req *Request) do() (err error) {
 	var httpReq *http.Request
-	httpReq, err = http.NewRequest(req.method, req.URL(), req.reqBody)
+	httpReq, err = http.NewRequestWithContext(req.ctx, req.method, req.URL(), req.reqBody)
 	if err != nil {
 		return
 	}
