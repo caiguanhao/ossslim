@@ -7,6 +7,7 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -115,6 +116,51 @@ func (c *Client) ExistsWithContext(ctx context.Context, remote string) (exists b
 	return
 }
 
+// PostForm generates field names and values ("token") for multipart form. This
+// is generally used when frontend user asks backend server for a token to
+// upload a file to OSS. The "key" is the path to remote file. If "maxSize" is
+// greater than 0, file larger than the "maxSize" bytes limit will not be
+// uploaded. The token will be expired after "duration" time, default is 10
+// minutes. You can provide "extraConditions" like below to add limits to the
+// uploaded file:
+//  client.PostForm(key, 0, 0,
+//  	[]string{"starts-with", "$content-type", "application/"},
+//  	map[string]string{"x-oss-object-acl": "public-read"},
+//  )
+// For more info, visit https://help.aliyun.com/document_detail/31988.html#title-5go-s2f-dnw
+func (c *Client) PostForm(key string, maxSize int64, duration time.Duration, extraConditions ...interface{}) map[string]string {
+	key = strings.TrimPrefix(key, "/")
+	conditions := []interface{}{
+		map[string]string{"bucket": c.Bucket},
+		map[string]string{"key": key},
+	}
+	if maxSize > 0 {
+		conditions = append(conditions, []interface{}{"content-length-range", 0, maxSize})
+	}
+	if duration <= 0 {
+		duration = 10 * time.Minute
+	}
+	for _, cond := range extraConditions {
+		conditions = append(conditions, cond)
+	}
+	policyJson, _ := json.Marshal(struct {
+		Expiration time.Time   `json:"expiration"`
+		Conditions interface{} `json:"conditions"`
+	}{
+		time.Now().UTC().Round(time.Second).Add(duration),
+		conditions,
+	})
+	policy := base64.StdEncoding.EncodeToString(policyJson)
+	mac := hmac.New(sha1.New, []byte(c.AccessKeySecret))
+	mac.Write([]byte(policy))
+	return map[string]string{
+		"key":            key,
+		"policy":         policy,
+		"OSSAccessKeyId": c.AccessKeyId,
+		"signature":      base64.StdEncoding.EncodeToString(mac.Sum(nil)),
+	}
+}
+
 // Upload wraps UploadWithContext using context.Background.
 func (c *Client) Upload(remote string, reqBody io.Reader, reqBodyMd5 []byte, contentType string) (*Request, error) {
 	return c.UploadWithContext(context.Background(), remote, reqBody, reqBodyMd5, contentType)
@@ -175,7 +221,7 @@ func (c *Client) DeleteWithContext(ctx context.Context, remotes ...string) error
 	files := []keyOnly{}
 	for _, remote := range remotes {
 		files = append(files, keyOnly{
-			Key: remote,
+			Key: strings.TrimPrefix(remote, "/"),
 		})
 	}
 	if err := xml.NewEncoder(&reqBody).Encode(deleteReq{

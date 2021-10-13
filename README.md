@@ -66,5 +66,11 @@ func main() {
 	}
 	fmt.Println(result.Files)
 	// []
+
+	const MB = 1 << 20
+	expiredAfter := 2 * time.Minute
+	form := client.PostForm("/foo/bar", 1*MB, expiredAfter)
+	fmt.Println(form)
+	// map[OSSAccessKeyId:... key:foo/bar policy:... signature:...]
 }
 ```

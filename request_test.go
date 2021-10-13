@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/md5"
 	"io/ioutil"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -110,6 +112,65 @@ func TestUploadBadMd5(t *testing.T) {
 		t.Fatal("server didn't respond correct error")
 	} else {
 		t.Log("server responded correct error")
+	}
+}
+
+func TestPostForm(t *testing.T) {
+	file, err := ioutil.ReadFile("request_test.go")
+	if err != nil {
+		panic(err)
+	}
+	client := newClientFromEnv(t)
+	key := time.Now().UTC().Format("/tmp20060102150405/foo")
+	const MB = 1 << 20
+	params := client.PostForm(key, 1*MB, 1*time.Minute, map[string]string{"x-oss-object-acl": "public-read"})
+	params["x-oss-object-acl"] = "public-read"
+	postFile(t, client, key, params, file)
+}
+
+func postFile(t *testing.T, client *Client, key string, params map[string]string, content []byte) {
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+	for key, value := range params {
+		if err := writer.WriteField(key, value); err != nil {
+			panic(err)
+		}
+	}
+	part, err := writer.CreateFormFile("file", "foo")
+	if err != nil {
+		panic(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		panic(err)
+	}
+	if err = writer.Close(); err != nil {
+		panic(err)
+	}
+	req, err := http.NewRequest("POST", client.Prefix, body)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	respBody, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	if res.StatusCode == 204 {
+		t.Log("Successfully uploaded", key)
+	} else {
+		t.Log("Response body:", string(respBody))
+		t.Errorf("Incorrect status code returned: %d", res.StatusCode)
+	}
+	err = client.Delete(key)
+	if err == nil {
+		t.Log("Removed", key)
+	} else {
+		t.Fatal(err)
 	}
 }
 
