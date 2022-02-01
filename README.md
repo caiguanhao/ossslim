@@ -4,6 +4,12 @@ Slim Aliyun OSS client.
 
 You can create (upload), get (download), delete, list files on OSS.
 
+Command line:
+
+```
+go install -v github.com/caiguanhao/ossslim/oss@latest
+```
+
 Usage:
 
 ```golang
