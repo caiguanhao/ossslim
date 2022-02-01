@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/caiguanhao/ossslim"
@@ -23,9 +24,12 @@ var (
 func main() {
 	var createConfig bool
 	var configFile string
+	var extsIgnore list
+
 	flag.BoolVar(&createConfig, "C", false, "create config file and exit")
 	flag.StringVar(&configFile, "c", "oss.config", "config file location")
 	flag.BoolVar(&dryrun, "n", false, "show only URLs, don't upload")
+	flag.Var(&extsIgnore, "noext", "file extensions to ignore (for example -noext html)")
 	flag.Parse()
 
 	if createConfig {
@@ -67,6 +71,10 @@ func main() {
 				return err
 			}
 			if !info.Mode().IsRegular() {
+				return nil
+			}
+			ext := strings.TrimPrefix(filepath.Ext(path), ".")
+			if extsIgnore.Has(ext) {
 				return nil
 			}
 			name, err := filepath.Rel(root, path)
@@ -120,4 +128,24 @@ func upload(root, path string) {
 		return
 	}
 	log.Printf("uploaded to %s (%d bytes)\n", req.URL(), n)
+}
+
+type list []string
+
+func (s list) String() string {
+	return strings.Join(s, ", ")
+}
+
+func (s *list) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
+func (s list) Has(str string) bool {
+	for _, element := range s {
+		if element == str {
+			return true
+		}
+	}
+	return false
 }
