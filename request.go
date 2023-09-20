@@ -15,6 +15,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,7 +38,8 @@ type (
 		ctx    context.Context
 
 		remote      string
-		queryString string
+		canonRes    string
+		queries     url.Values
 		contentType string
 		method      string
 		date        string
@@ -64,6 +66,28 @@ type (
 		Prefix string
 		Files  []File
 		Dirs   []Directory
+	}
+
+	ImageInfo struct {
+		Size   int64
+		Format string
+		Width  int
+		Height int
+	}
+
+	imageInfo struct {
+		Size struct {
+			Value string `json:"value"`
+		} `json:"FileSize"`
+		Format struct {
+			Value string `json:"value"`
+		} `json:"Format"`
+		Width struct {
+			Value string `json:"value"`
+		} `json:"ImageWidth"`
+		Height struct {
+			Value string `json:"value"`
+		} `json:"ImageHeight"`
 	}
 
 	responseError struct {
@@ -112,6 +136,41 @@ func (c *Client) ExistsWithContext(ctx context.Context, remote string) (exists b
 	err = req.do()
 	if req.Response != nil {
 		exists = req.Response.StatusCode == 200
+	}
+	return
+}
+
+func (c *Client) ImageInfo(remote string) (*ImageInfo, *Request, error) {
+	return c.ImageInfoWithContext(context.Background(), remote)
+}
+
+func (c *Client) ImageInfoWithContext(ctx context.Context, remote string) (info *ImageInfo, req *Request, err error) {
+	var response bytes.Buffer
+	req = &Request{
+		client:   c,
+		ctx:      ctx,
+		remote:   remote,
+		method:   "GET",
+		respBody: &response,
+		queries:  url.Values{},
+	}
+	req.queries.Set("x-oss-process", "image/info")
+	err = req.do()
+	if err == nil && req.Response != nil {
+		var imgInfo imageInfo
+		err = json.NewDecoder(&response).Decode(&imgInfo)
+		if err != nil {
+			return
+		}
+		size, _ := strconv.ParseInt(imgInfo.Size.Value, 10, 64)
+		width, _ := strconv.Atoi(imgInfo.Width.Value)
+		height, _ := strconv.Atoi(imgInfo.Height.Value)
+		info = &ImageInfo{
+			Size:   size,
+			Format: imgInfo.Format.Value,
+			Width:  width,
+			Height: height,
+		}
 	}
 	return
 }
@@ -286,18 +345,27 @@ func (req *Request) String() string {
 }
 
 func (req *Request) URL() string {
-	return strings.TrimSuffix(req.client.Prefix, "/") + req.getRemote() + req.queryString
+	url := strings.TrimSuffix(req.client.Prefix, "/") + req.getRemote()
+	qs := req.queries.Encode()
+	if qs == "" {
+		return url
+	}
+	return url + "?" + qs
 }
 
 func (req *Request) list(prefix string, marker string, result *ListResult, recursive bool) (err error) {
 	req.remote = "/"
+	req.canonRes = "/"
 	prefix = strings.Trim(prefix, "/") + "/"
 	if prefix == "/" {
 		prefix = ""
 	}
-	req.queryString = "?max-keys=1000&prefix=" + url.QueryEscape(prefix) + "&marker=" + url.QueryEscape(marker)
+	req.queries = url.Values{}
+	req.queries.Set("max-keys", "1000")
+	req.queries.Set("prefix", prefix)
+	req.queries.Set("marker", marker)
 	if !recursive {
-		req.queryString += "&delimiter=/"
+		req.queries.Set("delimiter", "/")
 	}
 	req.method = "GET"
 	var response bytes.Buffer
@@ -375,11 +443,37 @@ func (req *Request) do() (err error) {
 	return
 }
 
+func (req *Request) queryString() string {
+	if len(req.queries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("?")
+	for k := range req.queries {
+		for _, v := range req.queries[k] {
+			if b.Len() > 1 {
+				b.WriteByte('&')
+			}
+			b.WriteString(k)
+			b.WriteByte('=')
+			b.WriteString(v)
+		}
+	}
+	return b.String()
+}
+
 func (req *Request) getRemote() string {
 	if !strings.HasPrefix(req.remote, "/") {
 		return "/" + req.remote
 	}
 	return req.remote
+}
+
+func (req *Request) canonicalizedResource() string {
+	if req.canonRes != "" {
+		return "/" + req.client.Bucket + req.canonRes
+	}
+	return "/" + req.client.Bucket + req.getRemote() + req.queryString()
 }
 
 func (req *Request) signature() string {
@@ -388,7 +482,7 @@ func (req *Request) signature() string {
 		req.contentMd5,
 		req.contentType,
 		req.date,
-		fmt.Sprintf("/%s%s", req.client.Bucket, req.getRemote()),
+		req.canonicalizedResource(),
 	}, "\n")
 	mac := hmac.New(sha1.New, []byte(req.client.AccessKeySecret))
 	mac.Write([]byte(msg))
