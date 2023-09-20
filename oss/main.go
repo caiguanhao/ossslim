@@ -19,6 +19,7 @@ import (
 var (
 	client ossslim.Client
 	dryrun bool
+	nomd5  bool
 )
 
 func main() {
@@ -29,6 +30,7 @@ func main() {
 	flag.BoolVar(&createConfig, "C", false, "create config file and exit")
 	flag.StringVar(&configFile, "c", "oss.config", "config file location")
 	flag.BoolVar(&dryrun, "n", false, "show only URLs, don't upload")
+	flag.BoolVar(&nomd5, "nomd5", false, "do not compute md5")
 	flag.Var(&extsIgnore, "noext", "file extensions to ignore (for example -noext html)")
 	flag.Parse()
 
@@ -116,18 +118,27 @@ func upload(root, path string) {
 		return
 	}
 	defer file.Close()
-	md5sum := md5.New()
-	n, err := io.Copy(io.MultiWriter(&buffer, md5sum), file)
-	if err != nil {
-		log.Fatalln(err)
-		return
+	if nomd5 == false {
+		md5sum := md5.New()
+		n, err := io.Copy(io.MultiWriter(&buffer, md5sum), file)
+		if err != nil {
+			log.Fatalln(err)
+			return
+		}
+		req, err := client.Upload(path, &buffer, md5sum.Sum(nil), contentType)
+		if err != nil {
+			log.Fatalln("failed to upload to", req.URL(), err)
+			return
+		}
+		log.Printf("uploaded to %s (%d bytes)\n", req.URL(), n)
+	} else {
+		req, err := client.Upload(path, file, nil, contentType)
+		if err != nil {
+			log.Fatalln("failed to upload to", req.URL(), err)
+			return
+		}
+		log.Printf("uploaded to %s\n", req.URL())
 	}
-	req, err := client.Upload(path, &buffer, md5sum.Sum(nil), contentType)
-	if err != nil {
-		log.Fatalln("failed to upload to", req.URL(), err)
-		return
-	}
-	log.Printf("uploaded to %s (%d bytes)\n", req.URL(), n)
 }
 
 type list []string
