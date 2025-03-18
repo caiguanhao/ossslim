@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"flag"
 	"fmt"
@@ -26,12 +27,16 @@ func main() {
 	var createConfig bool
 	var configFile string
 	var extsIgnore list
+	var recursiveDelete bool
+	var except list
 
 	flag.BoolVar(&createConfig, "C", false, "create config file and exit")
 	flag.StringVar(&configFile, "c", "oss.config", "config file location")
 	flag.BoolVar(&dryrun, "n", false, "show only URLs, don't upload")
 	flag.BoolVar(&nomd5, "nomd5", false, "do not compute md5")
 	flag.Var(&extsIgnore, "noext", "file extensions to ignore (for example -noext html)")
+	flag.BoolVar(&recursiveDelete, "recursive-delete", false, "delete all files with prefix and exit")
+	flag.Var(&except, "except", "except files with prefix when delete")
 	flag.Parse()
 
 	if createConfig {
@@ -63,6 +68,19 @@ func main() {
 		AccessKeySecret: currentConfig.OSSAccessKeySecret,
 		Prefix:          currentConfig.OSSPrefix,
 		Bucket:          currentConfig.OSSBucket,
+	}
+
+	if recursiveDelete {
+		_, undeleted, err := client.DeleteRecursiveWithContext(context.Background(), root, func(path string) bool {
+			return except.HasPrefix(path)
+		})
+		if err != nil {
+			log.Fatalln(err)
+		}
+		for _, f := range undeleted {
+			log.Println("Not deleted:", f)
+		}
+		return
 	}
 
 	jobs := make(chan string)
@@ -155,6 +173,15 @@ func (s *list) Set(value string) error {
 func (s list) Has(str string) bool {
 	for _, element := range s {
 		if element == str {
+			return true
+		}
+	}
+	return false
+}
+
+func (s list) HasPrefix(str string) bool {
+	for _, element := range s {
+		if strings.HasPrefix(str, strings.TrimPrefix(element, "/")) {
 			return true
 		}
 	}
