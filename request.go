@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -273,12 +274,23 @@ func (c *Client) Delete(remotes ...string) error {
 }
 
 // Delete creates and executes a delete request for multiple remote keys
-// (paths) at the same time.
+// (paths) at the same time. If you have more than 1000 keys to delete, this
+// function will split them into groups of 1000 and delete them one by one.
 func (c *Client) DeleteWithContext(ctx context.Context, remotes ...string) error {
+	size := len(remotes)
+	if size == 0 {
+		return nil
+	}
 	var reqBody bytes.Buffer
 	reqBody.WriteString(xml.Header)
 	files := []keyOnly{}
-	for _, remote := range remotes {
+	var current, rest []string
+	if size > 1000 {
+		current, rest = remotes[:1000], remotes[1000:]
+	} else {
+		current = remotes
+	}
+	for _, remote := range current {
 		files = append(files, keyOnly{
 			Key: strings.TrimPrefix(remote, "/"),
 		})
@@ -300,7 +312,41 @@ func (c *Client) DeleteWithContext(ctx context.Context, remotes ...string) error
 		method:     "POST",
 	}
 	err := req.do()
+	if err == nil {
+		log.Println("Deleted", len(current), "files")
+	}
+	if err == nil && len(rest) > 0 {
+		err = c.DeleteWithContext(ctx, rest...)
+	}
 	return err
+}
+
+// DeleteRecursiveWithContext deletes all files under the specified prefix except those
+// that match any of the exception functions. Each exception function should return true
+// for files that should be preserved. Returns lists of deleted and undeleted files, and
+// any error encountered. If deletion fails, all files are marked as undeleted.
+func (c *Client) DeleteRecursiveWithContext(ctx context.Context, prefix string, exceptions ...func(string) bool) (deleted, undeleted []string, err error) {
+	var list ListResult
+	list, err = c.ListWithContext(ctx, prefix, true)
+	if err != nil {
+		return
+	}
+outer:
+	for i := range list.Files {
+		for _, except := range exceptions {
+			if except(list.Files[i].Name) {
+				undeleted = append(undeleted, list.Files[i].Name)
+				continue outer
+			}
+		}
+		deleted = append(deleted, list.Files[i].Name)
+	}
+	err = c.DeleteWithContext(ctx, deleted...)
+	if err != nil {
+		undeleted = append(undeleted, deleted...)
+		deleted = nil
+	}
+	return
 }
 
 // List wraps ListWithContext using context.Background.
